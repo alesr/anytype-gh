@@ -1,5 +1,7 @@
 # anytype-gh
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/alesr/anytype-gh.svg)](https://pkg.go.dev/github.com/alesr/anytype-gh)
+
 `anytype-gh` is an interactive CLI that syncs a GitHub repository `README.md`
 (including private repos) into an Anytype page.
 
