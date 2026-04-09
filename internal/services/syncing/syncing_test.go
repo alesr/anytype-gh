@@ -17,7 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var errGitHubBoom = errors.New("github boom")
+var dummyGithubErr = errors.New("github boom")
+
+type fixedClock struct{ value time.Time }
+
+func (f fixedClock) Now() time.Time { return f.value }
 
 func TestService_Sync(t *testing.T) {
 	t.Parallel()
@@ -184,35 +188,59 @@ func TestService_Sync(t *testing.T) {
 			wantStateSpaceID: "space-1",
 		},
 		{
-			name:         "validates owner and name",
-			params:       Params{Name: "repo", AppKey: "app-key", SpaceID: "space-1"},
+			name: "validates owner and name",
+			params: Params{
+				Name:    "repo",
+				AppKey:  "app-key",
+				SpaceID: "space-1",
+			},
 			initialState: state.NewAppState(),
 			wantErrIs:    []error{errRepositoryOwnerNameRequired},
 		},
 		{
-			name:         "validates space id",
-			params:       Params{Owner: "octo", Name: "repo", AppKey: "app-key", SpaceID: "  "},
+			name: "validates space id",
+			params: Params{
+				Owner:   "octo",
+				Name:    "repo",
+				AppKey:  "app-key",
+				SpaceID: "  ",
+			},
 			initialState: state.NewAppState(),
 			wantErrIs:    []error{errAnytypeSpaceIDRequired},
 		},
 		{
-			name:         "propagates github readme error",
-			params:       Params{Owner: "octo", Name: "repo", AppKey: "app-key", SpaceID: "space-1"},
+			name: "propagates github readme error",
+			params: Params{
+				Owner:   "octo",
+				Name:    "repo",
+				AppKey:  "app-key",
+				SpaceID: "space-1",
+			},
 			initialState: state.NewAppState(),
-			githubErr:    errGitHubBoom,
-			wantErrIs:    []error{errGitHubBoom},
+			githubErr:    dummyGithubErr,
+			wantErrIs:    []error{dummyGithubErr},
 		},
 		{
-			name:         "wraps state load error",
-			params:       Params{Owner: "octo", Name: "repo", AppKey: "app-key", SpaceID: "space-1"},
+			name: "wraps state load error",
+			params: Params{
+				Owner:   "octo",
+				Name:    "repo",
+				AppKey:  "app-key",
+				SpaceID: "space-1",
+			},
 			initialState: state.NewAppState(),
 			githubReadme: github.Readme{RepoFullName: "octo/repo", SHA: "sha-1", Content: "# readme"},
 			loadErr:      errors.New("load failed"),
 			wantErrIs:    []error{errLoadState},
 		},
 		{
-			name:            "wraps state save error",
-			params:          Params{Owner: "octo", Name: "repo", AppKey: "app-key", SpaceID: "space-1"},
+			name: "wraps state save error",
+			params: Params{
+				Owner:   "octo",
+				Name:    "repo",
+				AppKey:  "app-key",
+				SpaceID: "space-1",
+			},
 			initialState:    state.NewAppState(),
 			githubReadme:    github.Readme{RepoFullName: "octo/repo", SHA: "sha-1", Content: "# readme"},
 			saveErr:         errors.New("save failed"),
@@ -236,9 +264,36 @@ func TestService_Sync(t *testing.T) {
 			server := newAnytypeTestServer(t, tc, serverState)
 			defer server.Close()
 
-			github := &mockGitHubGateway{readme: tc.githubReadme, err: tc.githubErr}
-			store := &mockStateStore{state: tc.initialState, loadErr: tc.loadErr, saveErr: tc.saveErr}
-			svc := New(github, server.URL, store)
+			mockGithub := &mockGitHubGateway{
+				GetReadmeFunc: func(context.Context, string, string) (github.Readme, error) {
+					if tc.githubErr != nil {
+						return github.Readme{}, tc.githubErr
+					}
+					return tc.githubReadme, nil
+				},
+			}
+
+			currentState := cloneAppState(tc.initialState)
+			var saveCalls int
+
+			store := &mockStateStore{
+				loadFunc: func(context.Context) (*state.AppState, error) {
+					if tc.loadErr != nil {
+						return nil, tc.loadErr
+					}
+					return cloneAppState(currentState), nil
+				},
+				saveFunc: func(_ context.Context, appState *state.AppState) error {
+					saveCalls++
+					if tc.saveErr != nil {
+						return tc.saveErr
+					}
+					currentState = cloneAppState(appState)
+					return nil
+				},
+			}
+
+			svc := New(mockGithub, server.URL, store)
 			svc.clock = fixedClock{value: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 
 			result, err := svc.Sync(context.Background(), tc.params)
@@ -263,10 +318,10 @@ func TestService_Sync(t *testing.T) {
 			assert.Equal(t, tc.wantListCalls, int(serverState.listCalls.Load()))
 			assert.Equal(t, tc.wantCreateCalls, int(serverState.createCalls.Load()))
 			assert.Equal(t, tc.wantUpdateCalls, int(serverState.updateCalls.Load()))
-			assert.Equal(t, tc.wantSaveCalls, store.saveCalls)
+			assert.Equal(t, tc.wantSaveCalls, saveCalls)
 
 			if tc.wantStateSHA != "" {
-				repoState := store.state.Repositories[tc.githubReadme.RepoFullName]
+				repoState := currentState.Repositories[tc.githubReadme.RepoFullName]
 				assert.Equal(t, tc.wantStateSHA, repoState.LastReadmeSHA)
 				assert.Equal(t, tc.wantStateSpaceID, repoState.SpaceID)
 			}
@@ -410,66 +465,4 @@ func withRepoState(repo string, repoState state.RepositoryState) *state.AppState
 	appState := state.NewAppState()
 	appState.Repositories[repo] = repoState
 	return appState
-}
-
-type mockGitHubGateway struct {
-	readme github.Readme
-	err    error
-}
-
-var _ gitHubGateway = (*mockGitHubGateway)(nil)
-
-func (m *mockGitHubGateway) GetReadme(context.Context, string, string) (github.Readme, error) {
-	if m.err != nil {
-		return github.Readme{}, m.err
-	}
-	return m.readme, nil
-}
-
-type mockStateStore struct {
-	state     *state.AppState
-	loadErr   error
-	saveErr   error
-	saveCalls int
-}
-
-var _ stateStore = (*mockStateStore)(nil)
-
-func (m *mockStateStore) Load(context.Context) (*state.AppState, error) {
-	if m.loadErr != nil {
-		return nil, m.loadErr
-	}
-	if m.state == nil {
-		m.state = state.NewAppState()
-	}
-
-	copyState := *m.state
-	copyState.Repositories = make(map[string]state.RepositoryState, len(m.state.Repositories))
-	for key, value := range m.state.Repositories {
-		copyState.Repositories[key] = value
-	}
-	return &copyState, nil
-}
-
-func (m *mockStateStore) Save(_ context.Context, appState *state.AppState) error {
-	m.saveCalls++
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-
-	copyState := *appState
-	copyState.Repositories = make(map[string]state.RepositoryState, len(appState.Repositories))
-	for key, value := range appState.Repositories {
-		copyState.Repositories[key] = value
-	}
-	m.state = &copyState
-	return nil
-}
-
-type fixedClock struct {
-	value time.Time
-}
-
-func (f fixedClock) Now() time.Time {
-	return f.value
 }

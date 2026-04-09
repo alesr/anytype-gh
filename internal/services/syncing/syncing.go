@@ -48,10 +48,7 @@ type (
 		SkippedMsg string
 	}
 
-	page struct {
-		Title    string
-		Markdown string
-	}
+	page struct{ Title, Markdown string }
 
 	gitHubGateway interface {
 		GetReadme(ctx context.Context, owner, name string) (github.Readme, error)
@@ -62,9 +59,16 @@ type (
 		Save(ctx context.Context, state *state.AppState) error
 	}
 
-	clock interface {
-		Now() time.Time
+	syncRequest struct {
+		spaceID      string
+		client       anytypesdk.Client
+		readme       github.Readme
+		currentState *state.AppState
+		repoState    state.RepositoryState
+		pageTitle    string
 	}
+
+	clock interface{ Now() time.Time }
 )
 
 type realClock struct{}
@@ -76,15 +80,6 @@ type Service struct {
 	anytype *anytypefactory.Factory
 	state   stateStore
 	clock   clock
-}
-
-type syncRequest struct {
-	spaceID      string
-	client       anytypesdk.Client
-	readme       github.Readme
-	currentState *state.AppState
-	repoState    state.RepositoryState
-	pageTitle    string
 }
 
 func New(github gitHubGateway, baseURL string, store stateStore) *Service {
@@ -187,7 +182,7 @@ func (s *Service) skipIfUnchanged(ctx context.Context, req syncRequest) (bool, R
 		return false, Result{}, req.repoState, err
 	}
 	if !exists {
-		// Object was deleted externally; continue with normal sync to recreate.
+		// obj was deleted externally; continue with normal sync to recreate
 		req.repoState.ObjectID = ""
 		return false, Result{}, req.repoState, nil
 	}
@@ -274,11 +269,13 @@ func createAnytypePage(ctx context.Context, client anytypesdk.Client, spaceID st
 }
 
 func updateAnytypePage(ctx context.Context, client anytypesdk.Client, spaceID, objectID string, page page) error {
-	_, err := client.Space(spaceID).Object(objectID).Update(ctx, anytypesdk.UpdateObjectRequest{
-		Name:     page.Title,
-		Markdown: page.Markdown,
-	})
-	if err != nil {
+	if _, err := client.Space(spaceID).Object(objectID).Update(
+		ctx,
+		anytypesdk.UpdateObjectRequest{
+			Name:     page.Title,
+			Markdown: page.Markdown,
+		},
+	); err != nil {
 		return fmt.Errorf("%w: %w", errCouldNotUpdateAnytypePage, err)
 	}
 	return nil
@@ -327,7 +324,6 @@ func findAnytypePageByID(ctx context.Context, client anytypesdk.Client, spaceID,
 			break
 		}
 	}
-
 	return false, nil
 }
 
