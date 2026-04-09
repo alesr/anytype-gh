@@ -22,9 +22,13 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	runtime, err := config.Load(config.ResolveEnvFilePath())
+	cfg, err := config.Load(config.ResolveEnvFilePath())
 	if err != nil {
 		return fmt.Errorf("could not load config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("could not validate config: %w", err)
 	}
 
 	statePath, err := state.DefaultPath()
@@ -33,16 +37,16 @@ func run(ctx context.Context) error {
 	}
 
 	store := state.NewFileStore(statePath)
-	ghClient := github.NewClient(runtime.GitHubToken)
+	ghClient := github.NewClient(cfg.GitHubToken)
 
 	app, err := cli.NewApp(
 		os.Stdin,
 		os.Stdout,
 		store,
-		auth.New(runtime.AnytypeBaseURL, store),
-		spaces.New(runtime.AnytypeBaseURL, store),
+		auth.New(cfg.AnytypeBaseURL, store),
+		spaces.New(cfg.AnytypeBaseURL, store),
 		ghClient,
-		syncing.New(ghClient, runtime.AnytypeBaseURL, store),
+		syncing.New(ghClient, cfg.AnytypeBaseURL, store),
 	)
 	if err != nil {
 		return fmt.Errorf("could not initialize app: %w", err)

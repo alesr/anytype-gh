@@ -42,8 +42,8 @@ func TestLoad(t *testing.T) {
 		},
 		{
 			name:       "returns error on invalid line",
-			envContent: "INVALID_LINE",
-			wantErrIs:  errInvalidEnvLine,
+			envContent: "GH_TOKEN=\"unterminated",
+			wantErrIs:  errOpenEnvFile,
 		},
 	}
 
@@ -57,13 +57,14 @@ func TestLoad(t *testing.T) {
 			}
 
 			tempDir := t.TempDir()
-			envPath := filepath.Join(tempDir, ".env.local")
+
+			envPath := filepath.Join(tempDir, defaultEnvFileName)
 			if tc.envContent != "" {
 				err := os.WriteFile(envPath, []byte(tc.envContent), 0o600)
 				require.NoError(t, err)
 			}
 
-			runtime, err := Load(envPath)
+			cfg, err := Load(envPath)
 			if tc.wantErrIs != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErrIs)
@@ -71,8 +72,8 @@ func TestLoad(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantToken, runtime.GitHubToken)
-			assert.Equal(t, tc.wantBaseURL, runtime.AnytypeBaseURL)
+			assert.Equal(t, tc.wantToken, cfg.GitHubToken)
+			assert.Equal(t, tc.wantBaseURL, cfg.AnytypeBaseURL)
 		})
 	}
 }
@@ -81,14 +82,14 @@ func TestLoad_DoesNotMutateProcessEnvFromFile(t *testing.T) {
 	cleanupRuntimeEnv(t)
 
 	tempDir := t.TempDir()
-	envPath := filepath.Join(tempDir, ".env.local")
+	envPath := filepath.Join(tempDir, defaultEnvFileName)
 	err := os.WriteFile(envPath, []byte("GH_TOKEN=file-token\nANYTYPE_BASE_URL=http://localhost:39999"), 0o600)
 	require.NoError(t, err)
 
-	runtime, err := Load(envPath)
+	cfg, err := Load(envPath)
 	require.NoError(t, err)
-	assert.Equal(t, "file-token", runtime.GitHubToken)
-	assert.Equal(t, "http://localhost:39999", runtime.AnytypeBaseURL)
+	assert.Equal(t, "file-token", cfg.GitHubToken)
+	assert.Equal(t, "http://localhost:39999", cfg.AnytypeBaseURL)
 
 	_, exists := os.LookupEnv("GH_TOKEN")
 	assert.False(t, exists)
@@ -96,25 +97,55 @@ func TestLoad_DoesNotMutateProcessEnvFromFile(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestTrimMatchingQuotes(t *testing.T) {
+func TestConfigValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name     string
+		cfg      Config
+		wantErr  bool
+		wantErrIs error
 	}{
-		{name: "double quotes", input: "\"value\"", want: "value"},
-		{name: "single quotes", input: "'value'", want: "value"},
-		{name: "mismatched quotes", input: "\"value'", want: "\"value'"},
-		{name: "too short", input: "a", want: "a"},
+		{
+			name: "valid when GitHub token is set",
+			cfg: Config{
+				GitHubToken:    "gh-token",
+				AnytypeBaseURL: defaultAnytypeBaseURL,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid when token is empty",
+			cfg: Config{
+				GitHubToken:    "",
+				AnytypeBaseURL: defaultAnytypeBaseURL,
+			},
+			wantErr:   true,
+			wantErrIs: errGitHubTokenMissing,
+		},
+		{
+			name: "invalid when token is only spaces",
+			cfg: Config{
+				GitHubToken:    "   ",
+				AnytypeBaseURL: defaultAnytypeBaseURL,
+			},
+			wantErr:   true,
+			wantErrIs: errGitHubTokenMissing,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := trimMatchingQuotes(tc.input)
-			assert.Equal(t, tc.want, got)
+
+			err := tc.cfg.Validate()
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tc.wantErrIs)
 		})
 	}
 }
@@ -219,7 +250,6 @@ func TestResolveEnvFilePathWith(t *testing.T) {
 				_, ok := tc.existing[path]
 				return ok
 			})
-
 			assert.Equal(t, tc.want, got)
 		})
 	}

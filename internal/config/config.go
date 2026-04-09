@@ -3,7 +3,6 @@
 package config
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"maps"
@@ -12,96 +11,76 @@ import (
 	"strings"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 )
 
 const (
 	defaultAnytypeBaseURL = "http://localhost:31009"
+	defaultEnvFileName    = ".env.local"
 )
 
 var (
-	errParseEnv       = errors.New("parse env")
-	errOpenEnvFile    = errors.New("open env file")
-	errInvalidEnvLine = errors.New("invalid env line")
-	errInvalidEnvKey  = errors.New("invalid env key in line")
-	errReadEnvFile    = errors.New("read env file")
+	errParseEnv           = errors.New("parse env")
+	errOpenEnvFile        = errors.New("open env file")
+	errGitHubTokenMissing = errors.New("missing GitHub token (GH_TOKEN)")
 )
 
-// Runtime captures values that directly influence external side effects.
-// Keeping this struct small reduces ambiguity about which env vars matter.
-type Runtime struct {
+// Config hold configuration values used throughout the application.
+type Config struct {
 	GitHubToken    string `env:"GH_TOKEN"`
 	AnytypeBaseURL string `env:"ANYTYPE_BASE_URL"`
 }
 
-// Load resolves runtime config with process env taking precedence over dotenv
+// Validate fails fast on required values so startup errors are immediate and
+// explicit instead of surfacing later in downstream clients.
+func (c Config) Validate() error {
+	if strings.TrimSpace(c.GitHubToken) == "" {
+		return errGitHubTokenMissing
+	}
+	return nil
+}
+
+// Load resolves config with process env taking precedence over dotenv
 // values, so explicit shell settings always win.
-func Load(envFile string) (Runtime, error) {
+func Load(envFile string) (Config, error) {
 	if envFile == "" {
-		envFile = ".env.local"
+		envFile = defaultEnvFileName
 	}
 
 	fileEnv, err := loadDotEnv(envFile)
 	if err != nil {
-		return Runtime{}, err
+		return Config{}, err
 	}
 
-	var runtime Runtime
-	if err := env.ParseWithOptions(&runtime, env.Options{
+	opts := env.Options{
 		Environment: mergedEnv(fileEnv, os.Environ()),
-	}); err != nil {
-		return Runtime{}, fmt.Errorf("%w: %w", errParseEnv, err)
 	}
 
-	runtime.GitHubToken = strings.TrimSpace(runtime.GitHubToken)
-	runtime.AnytypeBaseURL = strings.TrimSpace(runtime.AnytypeBaseURL)
-
-	if runtime.AnytypeBaseURL == "" {
-		runtime.AnytypeBaseURL = defaultAnytypeBaseURL
+	var cfg Config
+	if err := env.ParseWithOptions(&cfg, opts); err != nil {
+		return Config{}, fmt.Errorf("%w: %w", errParseEnv, err)
 	}
-	return runtime, nil
+
+	cfg.GitHubToken = strings.TrimSpace(cfg.GitHubToken)
+	cfg.AnytypeBaseURL = strings.TrimSpace(cfg.AnytypeBaseURL)
+
+	if cfg.AnytypeBaseURL == "" {
+		cfg.AnytypeBaseURL = defaultAnytypeBaseURL
+	}
+	return cfg, nil
 }
 
 func loadDotEnv(path string) (map[string]string, error) {
-	file, err := os.Open(path)
+	values, err := godotenv.Read(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return map[string]string{}, nil
 		}
 		return nil, fmt.Errorf("%w: %w", errOpenEnvFile, err)
 	}
-	defer file.Close()
 
-	values := map[string]string{}
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		if after, ok := strings.CutPrefix(line, "export "); ok {
-			line = strings.TrimSpace(after)
-		}
-
-		key, value, found := strings.Cut(line, "=")
-		if !found {
-			return nil, fmt.Errorf("%w: %q", errInvalidEnvLine, line)
-		}
-
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		if key == "" {
-			return nil, fmt.Errorf("%w: %q", errInvalidEnvKey, line)
-		}
-
-		value = trimMatchingQuotes(value)
-		values[key] = value
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %w", errReadEnvFile, err)
+	if values == nil {
+		return map[string]string{}, nil
 	}
 	return values, nil
 }
@@ -121,24 +100,9 @@ func mergedEnv(fileEnv map[string]string, environ []string) map[string]string {
 	return merged
 }
 
-func trimMatchingQuotes(value string) string {
-	if len(value) < 2 {
-		return value
-	}
-
-	first := value[0]
-	last := value[len(value)-1]
-	if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
-		return value[1 : len(value)-1]
-	}
-	return value
-}
-
 // ResolveEnvFilePath chooses a practical .env.local location for CLI use so
 // installed binaries still behave predictably outside the repository root.
 func ResolveEnvFilePath() string {
-	const envFileName = ".env.local"
-
 	path := resolveEnvFilePathWith(
 		os.Getwd,
 		os.UserConfigDir,
@@ -151,7 +115,7 @@ func ResolveEnvFilePath() string {
 	if path != "" {
 		return path
 	}
-	return envFileName
+	return defaultEnvFileName
 }
 
 func resolveEnvFilePathWith(
