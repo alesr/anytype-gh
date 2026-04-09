@@ -7,6 +7,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/epheo/anytype-go v0.53.1
 	github.com/google/go-github/v73 v73.0.0
+	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/term v0.41.0
