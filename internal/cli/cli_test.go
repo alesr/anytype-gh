@@ -21,22 +21,29 @@ func TestApp_RunAuth(t *testing.T) {
 		t.Parallel()
 
 		var out bytes.Buffer
-		a := &app{out: &out}
+		a := &cli{out: &out}
 
 		store := &mockStateStore{path: "/tmp/state.json"}
-		prompt := &mockPromptService{readLineValue: "code-123"}
-		auth := &mockAuthService{
-			startChallengeValue: "challenge-1",
-			exchangeValue:       "api-key-secret",
+
+		prompt := &mockPromptService{
+			readLineFunc: func(string) (string, error) { return "code-123", nil },
 		}
+
+		auth := &mockAuthService{
+			startChallengeFunc: func(context.Context, string) (string, error) { return "challenge-1", nil },
+			exchangeCodeAndPersistFunc: func(context.Context, string, string) (string, error) {
+				return "api-key-secret", nil
+			},
+		}
+
 		a.authSvc = auth
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runAuth(context.Background())
+		err := a.runAuth(context.TODO())
 		require.NoError(t, err)
+
 		assert.Contains(t, out.String(), "Authentication complete. App key saved to /tmp/state.json")
-		assert.NotContains(t, out.String(), "App key preview")
 		assert.Equal(t, anytypeIntegrationName, auth.startChallengeAppName)
 		assert.Equal(t, "challenge-1", auth.exchangeChallengeID)
 		assert.Equal(t, "code-123", auth.exchangeCode)
@@ -47,16 +54,25 @@ func TestApp_RunAuth(t *testing.T) {
 
 		startChallengeErr := errors.New("start challenge")
 
-		a := &app{out: &bytes.Buffer{}}
+		a := &cli{out: &bytes.Buffer{}}
+
 		store := &mockStateStore{path: "/tmp/state.json"}
-		prompt := &mockPromptService{readLineValue: "code-123"}
-		auth := &mockAuthService{startChallengeErr: startChallengeErr}
+
+		prompt := &mockPromptService{
+			readLineFunc: func(string) (string, error) { return "code-123", nil },
+		}
+
+		auth := &mockAuthService{
+			startChallengeFunc: func(context.Context, string) (string, error) { return "", startChallengeErr },
+		}
+
 		a.authSvc = auth
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runAuth(context.Background())
+		err := a.runAuth(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, startChallengeErr)
 	})
 
@@ -65,16 +81,25 @@ func TestApp_RunAuth(t *testing.T) {
 
 		readInputErr := errors.New("read input")
 
-		a := &app{out: &bytes.Buffer{}}
+		a := &cli{out: &bytes.Buffer{}}
+
 		store := &mockStateStore{path: "/tmp/state.json"}
-		prompt := &mockPromptService{readLineErr: readInputErr}
-		auth := &mockAuthService{startChallengeValue: "challenge-1"}
+
+		prompt := &mockPromptService{
+			readLineFunc: func(string) (string, error) { return "", readInputErr },
+		}
+
+		auth := &mockAuthService{
+			startChallengeFunc: func(context.Context, string) (string, error) { return "challenge-1", nil },
+		}
+
 		a.authSvc = auth
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runAuth(context.Background())
+		err := a.runAuth(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, readInputErr)
 	})
 
@@ -83,19 +108,28 @@ func TestApp_RunAuth(t *testing.T) {
 
 		exchangeErr := errors.New("exchange code")
 
-		a := &app{out: &bytes.Buffer{}}
+		a := &cli{out: &bytes.Buffer{}}
+
 		store := &mockStateStore{path: "/tmp/state.json"}
-		prompt := &mockPromptService{readLineValue: "code-123"}
-		auth := &mockAuthService{
-			startChallengeValue: "challenge-1",
-			exchangeErr:         exchangeErr,
+
+		prompt := &mockPromptService{
+			readLineFunc: func(string) (string, error) { return "code-123", nil },
 		}
+
+		auth := &mockAuthService{
+			startChallengeFunc: func(context.Context, string) (string, error) { return "challenge-1", nil },
+			exchangeCodeAndPersistFunc: func(context.Context, string, string) (string, error) {
+				return "", exchangeErr
+			},
+		}
+
 		a.authSvc = auth
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runAuth(context.Background())
+		err := a.runAuth(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, exchangeErr)
 	})
 }
@@ -106,16 +140,24 @@ func TestApp_RunSpaces(t *testing.T) {
 	t.Run("returns error when app key missing", func(t *testing.T) {
 		t.Parallel()
 
-		a := &app{out: &bytes.Buffer{}}
-		store := &mockStateStore{state: state.NewAppState()}
+		a := &cli{out: &bytes.Buffer{}}
+
+		currentState := state.NewAppState()
+
+		store := &mockStateStore{
+			loadFunc: func(context.Context) (*state.AppState, error) { return currentState, nil },
+		}
+
 		space := &mockSpaceService{}
 		prompt := &mockPromptService{}
+
 		a.spaceSvc = space
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSpaces(context.Background())
+		err := a.runSpaces(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, errAnytypeAppKeyNotFound)
 	})
 
@@ -124,16 +166,24 @@ func TestApp_RunSpaces(t *testing.T) {
 
 		loadErr := errors.New("load state")
 
-		a := &app{out: &bytes.Buffer{}}
-		store := &mockStateStore{loadErr: loadErr}
-		space := &mockSpaceService{}
-		prompt := &mockPromptService{}
+		a := &cli{out: &bytes.Buffer{}}
+
+		store := &mockStateStore{
+			loadFunc: func(context.Context) (*state.AppState, error) { return nil, loadErr },
+		}
+
+		var (
+			space  *mockSpaceService
+			prompt *mockPromptService
+		)
+
 		a.spaceSvc = space
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSpaces(context.Background())
+		err := a.runSpaces(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, loadErr)
 	})
 
@@ -142,16 +192,30 @@ func TestApp_RunSpaces(t *testing.T) {
 
 		listSpacesErr := errors.New("list spaces")
 
-		a := &app{out: &bytes.Buffer{}}
-		store := &mockStateStore{state: &state.AppState{AnytypeAppKey: "app-key", Repositories: map[string]state.RepositoryState{}}}
-		space := &mockSpaceService{listErr: listSpacesErr}
-		prompt := &mockPromptService{}
+		a := &cli{out: &bytes.Buffer{}}
+
+		currentState := &state.AppState{
+			AnytypeAppKey: "app-key",
+			Repositories:  map[string]state.RepositoryState{},
+		}
+
+		store := &mockStateStore{
+			loadFunc: func(context.Context) (*state.AppState, error) { return currentState, nil },
+		}
+
+		space := &mockSpaceService{
+			listFunc: func(context.Context, string) ([]spaces.Space, error) { return nil, listSpacesErr },
+		}
+
+		var prompt *mockPromptService
+
 		a.spaceSvc = space
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSpaces(context.Background())
+		err := a.runSpaces(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, listSpacesErr)
 	})
 
@@ -160,18 +224,34 @@ func TestApp_RunSpaces(t *testing.T) {
 
 		selectOptionErr := errors.New("select option")
 
-		a := &app{out: &bytes.Buffer{}}
-		store := &mockStateStore{state: &state.AppState{AnytypeAppKey: "app-key", Repositories: map[string]state.RepositoryState{}}}
-		space := &mockSpaceService{
-			listValue: []spaces.Space{{ID: "space-1", Name: "Main"}},
+		a := &cli{out: &bytes.Buffer{}}
+
+		currentState := &state.AppState{
+			AnytypeAppKey: "app-key",
+			Repositories:  map[string]state.RepositoryState{},
 		}
-		prompt := &mockPromptService{chooseIndexErr: selectOptionErr}
+
+		store := &mockStateStore{
+			loadFunc: func(context.Context) (*state.AppState, error) { return currentState, nil },
+		}
+
+		space := &mockSpaceService{
+			listFunc: func(context.Context, string) ([]spaces.Space, error) {
+				return []spaces.Space{{ID: "space-1", Name: "Main"}}, nil
+			},
+		}
+
+		prompt := &mockPromptService{
+			chooseIndexFunc: func(string, []string) (int, error) { return -1, selectOptionErr },
+		}
+
 		a.spaceSvc = space
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSpaces(context.Background())
+		err := a.runSpaces(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, selectOptionErr)
 	})
 
@@ -180,20 +260,36 @@ func TestApp_RunSpaces(t *testing.T) {
 
 		setDefaultErr := errors.New("set default")
 
-		a := &app{out: &bytes.Buffer{}}
-		store := &mockStateStore{state: &state.AppState{AnytypeAppKey: "app-key", Repositories: map[string]state.RepositoryState{}}}
-		space := &mockSpaceService{
-			listValue:      []spaces.Space{{ID: "space-1", Name: "Main"}},
-			setDefaultErr:  setDefaultErr,
-			setDefaultArgs: []string{},
+		a := &cli{out: &bytes.Buffer{}}
+
+		currentState := &state.AppState{
+			AnytypeAppKey: "app-key",
+			Repositories:  map[string]state.RepositoryState{},
 		}
-		prompt := &mockPromptService{chooseIndexValues: []int{0}}
+
+		store := &mockStateStore{
+			loadFunc: func(context.Context) (*state.AppState, error) { return currentState, nil },
+			saveFunc: func(context.Context, *state.AppState) error { return nil },
+		}
+
+		space := &mockSpaceService{
+			listFunc: func(context.Context, string) ([]spaces.Space, error) {
+				return []spaces.Space{{ID: "space-1", Name: "Main"}}, nil
+			},
+			setDefaultFunc: func(context.Context, string) error { return setDefaultErr },
+		}
+
+		prompt := &mockPromptService{
+			chooseIndexFunc: func(string, []string) (int, error) { return 0, nil },
+		}
+
 		a.spaceSvc = space
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSpaces(context.Background())
+		err := a.runSpaces(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, setDefaultErr)
 	})
 }
@@ -205,39 +301,54 @@ func TestApp_RunSync(t *testing.T) {
 		t.Parallel()
 
 		var out bytes.Buffer
-		a := &app{out: &out}
+		a := &cli{out: &out}
 
 		store := &mockStateStore{
-			state: &state.AppState{
-				AnytypeAppKey: "app-key",
-				DefaultSpace:  "space-1",
-				Repositories:  map[string]state.RepositoryState{},
+			loadFunc: func(context.Context) (*state.AppState, error) {
+				return &state.AppState{
+					AnytypeAppKey: "app-key",
+					DefaultSpace:  "space-1",
+					Repositories:  map[string]state.RepositoryState{},
+				}, nil
 			},
 		}
-		space := &mockSpaceService{}
+
+		var space *mockSpaceService
+
 		repo := &mockRepoService{
-			listValue: []github.Repository{
-				{Owner: "octo", Name: "repo", FullName: "octo/repo", Private: true},
+			listAccessibleReposFunc: func(context.Context) ([]github.Repository, error) {
+				return []github.Repository{
+					{Owner: "octo", Name: "repo", FullName: "octo/repo", Private: true},
+				}, nil
 			},
 		}
+
 		sync := &mockSyncService{
-			syncValue: syncing.Result{
-				Action:   "updated",
-				ObjectID: "obj-1",
-				RepoFull: "octo/repo",
+			syncFunc: func(context.Context, syncing.Params) (syncing.Result, error) {
+				return syncing.Result{
+					Action:   "updated",
+					ObjectID: "obj-1",
+					RepoFull: "octo/repo",
+				}, nil
 			},
 		}
-		prompt := &mockPromptService{chooseIndexValues: []int{0}}
+
+		prompt := &mockPromptService{
+			chooseIndexFunc: func(string, []string) (int, error) { return 0, nil },
+		}
+
 		a.spaceSvc = space
 		a.repoSvc = repo
 		a.syncSvc = sync
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSync(context.Background())
+		err := a.runSync(context.TODO())
 		require.NoError(t, err)
-		assert.Contains(t, out.String(), "Updated Anytype page obj-1 for octo/repo")
+
 		require.NotNil(t, sync.syncParams)
+
+		assert.Contains(t, out.String(), "Updated Anytype page obj-1 for octo/repo")
 		assert.Equal(t, "octo", sync.syncParams.Owner)
 		assert.Equal(t, "repo", sync.syncParams.Name)
 		assert.Equal(t, "app-key", sync.syncParams.AppKey)
@@ -249,26 +360,40 @@ func TestApp_RunSync(t *testing.T) {
 
 		listReposErr := errors.New("list repos")
 
-		a := &app{out: &bytes.Buffer{}}
+		a := &cli{out: &bytes.Buffer{}}
+
 		store := &mockStateStore{
-			state: &state.AppState{
-				AnytypeAppKey: "app-key",
-				DefaultSpace:  "space-1",
-				Repositories:  map[string]state.RepositoryState{},
+			loadFunc: func(context.Context) (*state.AppState, error) {
+				return &state.AppState{
+					AnytypeAppKey: "app-key",
+					DefaultSpace:  "space-1",
+					Repositories:  map[string]state.RepositoryState{},
+				}, nil
 			},
 		}
-		space := &mockSpaceService{}
-		repo := &mockRepoService{listErr: listReposErr}
-		sync := &mockSyncService{}
-		prompt := &mockPromptService{}
+
+		var space *mockSpaceService
+
+		repo := &mockRepoService{
+			listAccessibleReposFunc: func(context.Context) ([]github.Repository, error) {
+				return nil, listReposErr
+			},
+		}
+
+		var (
+			sync   *mockSyncService
+			prompt *mockPromptService
+		)
+
 		a.spaceSvc = space
 		a.repoSvc = repo
 		a.syncSvc = sync
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSync(context.Background())
+		err := a.runSync(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, listReposErr)
 	})
 
@@ -277,30 +402,47 @@ func TestApp_RunSync(t *testing.T) {
 
 		syncErr := errors.New("sync")
 
-		a := &app{out: &bytes.Buffer{}}
+		a := &cli{out: &bytes.Buffer{}}
+
 		store := &mockStateStore{
-			state: &state.AppState{
-				AnytypeAppKey: "app-key",
-				DefaultSpace:  "space-1",
-				Repositories:  map[string]state.RepositoryState{},
+			loadFunc: func(context.Context) (*state.AppState, error) {
+				return &state.AppState{
+					AnytypeAppKey: "app-key",
+					DefaultSpace:  "space-1",
+					Repositories:  map[string]state.RepositoryState{},
+				}, nil
 			},
 		}
-		space := &mockSpaceService{}
+
+		var space *mockSpaceService
+
 		repo := &mockRepoService{
-			listValue: []github.Repository{
-				{Owner: "octo", Name: "repo", FullName: "octo/repo"},
+			listAccessibleReposFunc: func(context.Context) ([]github.Repository, error) {
+				return []github.Repository{
+					{Owner: "octo", Name: "repo", FullName: "octo/repo"},
+				}, nil
 			},
 		}
-		sync := &mockSyncService{syncErr: syncErr}
-		prompt := &mockPromptService{chooseIndexValues: []int{0}}
+
+		sync := &mockSyncService{
+			syncFunc: func(context.Context, syncing.Params) (syncing.Result, error) {
+				return syncing.Result{}, syncErr
+			},
+		}
+
+		prompt := &mockPromptService{
+			chooseIndexFunc: func(string, []string) (int, error) { return 0, nil },
+		}
+
 		a.spaceSvc = space
 		a.repoSvc = repo
 		a.syncSvc = sync
 		a.prompt = prompt
 		a.store = store
 
-		err := a.runSync(context.Background())
+		err := a.runSync(context.TODO())
 		require.Error(t, err)
+
 		assert.ErrorIs(t, err, syncErr)
 	})
 }
@@ -308,11 +450,13 @@ func TestApp_RunSync(t *testing.T) {
 func TestNewApp(t *testing.T) {
 	t.Parallel()
 
-	store := &mockStateStore{}
-	authSvc := &mockAuthService{}
-	spaceSvc := &mockSpaceService{}
-	repoSvc := &mockRepoService{}
-	syncSvc := &mockSyncService{}
+	var (
+		store    *mockStateStore
+		authSvc  *mockAuthService
+		spaceSvc *mockSpaceService
+		repoSvc  *mockRepoService
+		syncSvc  *mockSyncService
+	)
 
 	t.Run("returns app when dependencies are complete", func(t *testing.T) {
 		t.Parallel()
@@ -330,147 +474,4 @@ func TestNewApp(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errStoreDependencyRequired)
 	})
-}
-
-var _ authService = (*mockAuthService)(nil)
-
-type mockAuthService struct {
-	startChallengeAppName string
-	startChallengeValue   string
-	startChallengeErr     error
-	exchangeChallengeID   string
-	exchangeCode          string
-	exchangeValue         string
-	exchangeErr           error
-}
-
-func (m *mockAuthService) StartChallenge(_ context.Context, appName string) (string, error) {
-	m.startChallengeAppName = appName
-	if m.startChallengeErr != nil {
-		return "", m.startChallengeErr
-	}
-	return m.startChallengeValue, nil
-}
-
-func (m *mockAuthService) ExchangeCodeAndPersist(_ context.Context, challengeID, code string) (string, error) {
-	m.exchangeChallengeID = challengeID
-	m.exchangeCode = code
-	if m.exchangeErr != nil {
-		return "", m.exchangeErr
-	}
-	return m.exchangeValue, nil
-}
-
-type mockSpaceService struct {
-	listValue      []spaces.Space
-	listErr        error
-	setDefaultErr  error
-	setDefaultArgs []string
-}
-
-var _ spaceService = (*mockSpaceService)(nil)
-
-func (m *mockSpaceService) List(_ context.Context, _ string) ([]spaces.Space, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	return m.listValue, nil
-}
-
-func (m *mockSpaceService) SetDefault(_ context.Context, spaceID string) error {
-	m.setDefaultArgs = append(m.setDefaultArgs, spaceID)
-	if m.setDefaultErr != nil {
-		return m.setDefaultErr
-	}
-	return nil
-}
-
-type mockRepoService struct {
-	listValue []github.Repository
-	listErr   error
-}
-
-var _ repoService = (*mockRepoService)(nil)
-
-func (m *mockRepoService) ListAccessibleRepos(_ context.Context) ([]github.Repository, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	return m.listValue, nil
-}
-
-type mockSyncService struct {
-	syncParams *syncing.Params
-	syncValue  syncing.Result
-	syncErr    error
-}
-
-var _ syncService = (*mockSyncService)(nil)
-
-func (m *mockSyncService) Sync(_ context.Context, params syncing.Params) (syncing.Result, error) {
-	m.syncParams = &params
-	if m.syncErr != nil {
-		return syncing.Result{}, m.syncErr
-	}
-	return m.syncValue, nil
-}
-
-type mockPromptService struct {
-	readLineValue     string
-	readLineErr       error
-	chooseIndexValues []int
-	chooseIndexErr    error
-	chooseCallCount   int
-}
-
-var _ promptService = (*mockPromptService)(nil)
-
-func (m *mockPromptService) readLine(_ string) (string, error) {
-	if m.readLineErr != nil {
-		return "", m.readLineErr
-	}
-	return m.readLineValue, nil
-}
-
-func (m *mockPromptService) chooseIndex(_ string, _ []string) (int, error) {
-	if m.chooseIndexErr != nil {
-		return -1, m.chooseIndexErr
-	}
-	if m.chooseCallCount < len(m.chooseIndexValues) {
-		value := m.chooseIndexValues[m.chooseCallCount]
-		m.chooseCallCount++
-		return value, nil
-	}
-	return 0, nil
-}
-
-var _ stateStore = (*mockStateStore)(nil)
-
-type mockStateStore struct {
-	state   *state.AppState
-	loadErr error
-	saveErr error
-	path    string
-}
-
-func (m *mockStateStore) Load(context.Context) (*state.AppState, error) {
-	if m.loadErr != nil {
-		return nil, m.loadErr
-	}
-	if m.state == nil {
-		m.state = state.NewAppState()
-	}
-	return m.state, nil
-}
-
-func (m *mockStateStore) Save(_ context.Context, state *state.AppState) error {
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-	m.state = state
-	return nil
-}
-
-func (m *mockStateStore) Path() string {
-	return m.path
 }

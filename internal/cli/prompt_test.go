@@ -17,7 +17,12 @@ func TestIsInteractiveTTY(t *testing.T) {
 		output *bytes.Buffer
 		want   bool
 	}{
-		{name: "non-tty readers", input: bytes.NewBufferString(""), output: bytes.NewBufferString(""), want: false},
+		{
+			name:   "non-tty readers",
+			input:  bytes.NewBufferString(""),
+			output: bytes.NewBufferString(""),
+			want:   false,
+		},
 	}
 
 	for _, tc := range tests {

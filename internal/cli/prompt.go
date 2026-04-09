@@ -89,6 +89,7 @@ func (p *prompter) chooseIndex(label string, options []string) (int, error) {
 	if len(options) == 0 {
 		return -1, errNoOptionsAvailable
 	}
+
 	filterEnabled := len(options) >= selectFilteringThreshold
 
 	var selected int

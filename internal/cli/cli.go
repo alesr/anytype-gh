@@ -74,7 +74,7 @@ type (
 	}
 )
 
-type app struct {
+type cli struct {
 	in  io.Reader
 	out io.Writer
 
@@ -96,8 +96,8 @@ func NewApp(
 	spaceSvc spaceService,
 	repoSvc repoService,
 	syncSvc syncService,
-) (*app, error) {
-	app := &app{
+) (*cli, error) {
+	app := &cli{
 		in:       input,
 		out:      output,
 		store:    store,
@@ -114,7 +114,7 @@ func NewApp(
 }
 
 // Run executes the interactive menu loop until the user exits or an operation fails.
-func (a *app) Run(ctx context.Context) error {
+func (a *cli) Run(ctx context.Context) error {
 	for {
 		choice, err := a.prompt.chooseIndex("Choose an action:", mainMenuOptions)
 		if err != nil {
@@ -140,7 +140,7 @@ func (a *app) Run(ctx context.Context) error {
 	}
 }
 
-func (a *app) validate() error {
+func (a *cli) validate() error {
 	switch {
 	case a.store == nil:
 		return errStoreDependencyRequired
@@ -159,7 +159,7 @@ func (a *app) validate() error {
 	}
 }
 
-func (a *app) runAuth(ctx context.Context) error {
+func (a *cli) runAuth(ctx context.Context) error {
 	challengeCtx, challengeCancel := context.WithTimeout(ctx, defaultOperationTimeout)
 	challengeID, err := a.authSvc.StartChallenge(challengeCtx, anytypeIntegrationName)
 	challengeCancel()
@@ -186,7 +186,7 @@ func (a *app) runAuth(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) runSpaces(ctx context.Context) error {
+func (a *cli) runSpaces(ctx context.Context) error {
 	currentState, err := a.store.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load state: %w", err)
@@ -227,7 +227,7 @@ func (a *app) runSpaces(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) runSync(ctx context.Context) error {
+func (a *cli) runSync(ctx context.Context) error {
 	currentState, err := a.store.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load state: %w", err)
@@ -302,7 +302,7 @@ func (a *app) runSync(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) resolveRepository(ctx context.Context) (string, string, error) {
+func (a *cli) resolveRepository(ctx context.Context) (string, string, error) {
 	listCtx, listCancel := context.WithTimeout(ctx, defaultOperationTimeout)
 
 	repos, err := a.repoSvc.ListAccessibleRepos(listCtx)
