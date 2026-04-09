@@ -101,9 +101,9 @@ func TestConfigValidate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		cfg      Config
-		wantErr  bool
+		name      string
+		cfg       Config
+		wantErr   bool
 		wantErrIs error
 	}{
 		{
