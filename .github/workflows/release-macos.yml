@@ -2,7 +2,7 @@ name: Build and Upload Binaries
 
 on:
   release:
-    types: [published]
+    types: [published, prereleased, released]
 
 permissions:
   contents: write
@@ -36,6 +36,7 @@ jobs:
       - name: Upload Binaries to Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: |
             anytype-gh-darwin-arm64
             anytype-gh-darwin-amd64
