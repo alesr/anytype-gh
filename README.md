@@ -20,6 +20,8 @@
 - Anytype desktop app installed and running
 - GitHub token with access to your target repos (`GH_TOKEN`)
 
+Create a token at https://github.com/settings/personal-access-tokens with permission to read repositories.
+
 ## Install
 
 ```bash
@@ -56,6 +58,9 @@ Run the interactive CLI:
 ```bash
 anytype-gh
 ```
+
+First, authenticate (Anytype app must be running). Then choose the repository you want to fetch the README from, and sync it with Anytype to create or update a page with the README content.
+
 
 ## Sync behavior
 
