@@ -1,0 +1,41 @@
+name: Build and Upload Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Build for macOS (Apple Silicon / ARM64)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o anytype-gh-darwin-arm64 ./cmd/anytype-gh
+
+      - name: Build for macOS (Intel / AMD64)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o anytype-gh-darwin-amd64 ./cmd/anytype-gh
+
+      - name: Upload Binaries to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            anytype-gh-darwin-arm64
+            anytype-gh-darwin-amd64

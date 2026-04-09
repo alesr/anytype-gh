@@ -28,6 +28,19 @@ Create a token at https://github.com/settings/personal-access-tokens with permis
 go install github.com/alesr/anytype-gh/cmd/anytype-gh@latest
 ```
 
+## macOS prebuilt binaries
+
+- `anytype-gh-darwin-arm64` (Apple Silicon)
+- `anytype-gh-darwin-amd64` (Intel)
+
+Download the right asset for your Mac, then:
+
+```bash
+chmod +x anytype-gh-darwin-<arch>
+mv anytype-gh-darwin-<arch> anytype-gh
+./anytype-gh
+```
+
 ## Configuration
 
 Create `.env.local` in the project root:
