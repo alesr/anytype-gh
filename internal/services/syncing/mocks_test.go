@@ -33,6 +33,7 @@ func cloneAppState(appState *state.AppState) *state.AppState {
 	if appState == nil {
 		return state.NewAppState()
 	}
+
 	copyState := *appState
 	copyState.Repositories = make(map[string]state.RepositoryState, len(appState.Repositories))
 	maps.Copy(copyState.Repositories, appState.Repositories)

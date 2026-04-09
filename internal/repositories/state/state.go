@@ -39,9 +39,7 @@ type fileStore struct {
 
 // NewFileStore exists to keep persistence swappable in tests and future
 // backends while defaulting to the simplest local option.
-func NewFileStore(path string) *fileStore {
-	return &fileStore{path: path}
-}
+func NewFileStore(path string) *fileStore { return &fileStore{path: path} }
 
 // DefaultPath keeps state under the user config directory so credentials and
 // sync metadata are user-scoped instead of repo-scoped.
@@ -50,14 +48,11 @@ func DefaultPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errResolveUserConfigDir, err)
 	}
-
 	return filepath.Join(configDir, appDirName, stateFile), nil
 }
 
-// Path helps callers communicate where sensitive state is written.
-func (s *fileStore) Path() string {
-	return s.path
-}
+// Path helps callers communicate where file store state is written.
+func (s *fileStore) Path() string { return s.path }
 
 // Load treats missing state as first-run to avoid forcing setup files before
 // the user can authenticate.
@@ -122,6 +117,5 @@ func (s *fileStore) Save(_ context.Context, state *AppState) error {
 	if err := os.Chmod(s.path, fileMode); err != nil {
 		return fmt.Errorf("%w: %w", errChmodStateFile, err)
 	}
-
 	return nil
 }

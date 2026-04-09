@@ -48,11 +48,17 @@ func TestService_StartChallenge(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &mockStateStore{state: state.NewAppState()}
+			store := &mockStateStore{
+				loadFunc: func(context.Context) (*state.AppState, error) {
+					return state.NewAppState(), nil
+				},
+			}
+
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
 				assert.Equal(t, "/v1/auth/challenges", r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
+
 				if tc.statusCode == 0 {
 					w.WriteHeader(http.StatusOK)
 				} else {
@@ -63,7 +69,7 @@ func TestService_StartChallenge(t *testing.T) {
 			defer server.Close()
 
 			svc := New(server.URL, store)
-			challengeID, err := svc.StartChallenge(context.Background(), tc.appName)
+			challengeID, err := svc.StartChallenge(context.TODO(), tc.appName)
 
 			if len(tc.wantErrIs) > 0 {
 				require.Error(t, err)
@@ -148,11 +154,30 @@ func TestService_ExchangeCodeAndPersist(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &mockStateStore{state: state.NewAppState(), loadErr: tc.loadErr, saveErr: tc.saveErr}
+			currentState := state.NewAppState()
+			saveCalls := 0
+			store := &mockStateStore{
+				loadFunc: func(context.Context) (*state.AppState, error) {
+					if tc.loadErr != nil {
+						return nil, tc.loadErr
+					}
+					return currentState, nil
+				},
+				saveFunc: func(_ context.Context, appState *state.AppState) error {
+					saveCalls++
+					if tc.saveErr != nil {
+						return tc.saveErr
+					}
+					currentState.AnytypeAppKey = appState.AnytypeAppKey
+					return nil
+				},
+			}
+
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, http.MethodPost, r.Method)
 				assert.Equal(t, "/v1/auth/api_keys", r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
+
 				if tc.statusCode == 0 {
 					w.WriteHeader(http.StatusOK)
 				} else {
@@ -163,7 +188,7 @@ func TestService_ExchangeCodeAndPersist(t *testing.T) {
 			defer server.Close()
 
 			svc := New(server.URL, store)
-			apiKey, err := svc.ExchangeCodeAndPersist(context.Background(), tc.challengeID, tc.code)
+			apiKey, err := svc.ExchangeCodeAndPersist(context.TODO(), tc.challengeID, tc.code)
 
 			if len(tc.wantErrIs) > 0 {
 				require.Error(t, err)
@@ -182,37 +207,9 @@ func TestService_ExchangeCodeAndPersist(t *testing.T) {
 
 			if tc.wantSavedAppKey != "" {
 				assert.Equal(t, tc.wantSavedAppKey, apiKey)
-				assert.Equal(t, tc.wantSavedAppKey, store.state.AnytypeAppKey)
+				assert.Equal(t, tc.wantSavedAppKey, currentState.AnytypeAppKey)
 			}
-			assert.Equal(t, tc.wantStateSaves, store.saveCalls)
+			assert.Equal(t, tc.wantStateSaves, saveCalls)
 		})
 	}
-}
-
-type mockStateStore struct {
-	state     *state.AppState
-	loadErr   error
-	saveErr   error
-	saveCalls int
-}
-
-var _ stateStore = (*mockStateStore)(nil)
-
-func (m *mockStateStore) Load(context.Context) (*state.AppState, error) {
-	if m.loadErr != nil {
-		return nil, m.loadErr
-	}
-	if m.state == nil {
-		m.state = state.NewAppState()
-	}
-	return m.state, nil
-}
-
-func (m *mockStateStore) Save(_ context.Context, appState *state.AppState) error {
-	m.saveCalls++
-	if m.saveErr != nil {
-		return m.saveErr
-	}
-	m.state = appState
-	return nil
 }

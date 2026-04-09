@@ -66,7 +66,7 @@ func TestFileStore_Load(t *testing.T) {
 			}
 
 			store := NewFileStore(path)
-			state, err := store.Load(context.Background())
+			state, err := store.Load(context.TODO())
 
 			if tc.wantErrIs != nil {
 				require.Error(t, err)
@@ -75,6 +75,7 @@ func TestFileStore_Load(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
 			assert.Equal(t, tc.wantSchema, state.SchemaVersion)
 			assert.Len(t, state.Repositories, tc.wantRepoCount)
 		})
@@ -88,15 +89,17 @@ func TestFileStore_Save(t *testing.T) {
 	store := NewFileStore(statePath)
 
 	state := NewAppState()
+
 	state.AnytypeAppKey = "app-key"
 	state.DefaultSpace = "space-1"
 	state.Repositories["octo/private-repo"] = RepositoryState{ObjectID: "obj-1", LastReadmeSHA: "sha-1"}
 
-	err := store.Save(context.Background(), state)
+	err := store.Save(context.TODO(), state)
 	require.NoError(t, err)
 
-	loaded, err := store.Load(context.Background())
+	loaded, err := store.Load(context.TODO())
 	require.NoError(t, err)
+
 	assert.Equal(t, "app-key", loaded.AnytypeAppKey)
 	assert.Equal(t, "space-1", loaded.DefaultSpace)
 	assert.Equal(t, "obj-1", loaded.Repositories["octo/private-repo"].ObjectID)
