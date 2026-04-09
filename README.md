@@ -38,6 +38,7 @@ Download the right asset for your Mac, then:
 ```bash
 chmod +x anytype-gh-darwin-<arch>
 mv anytype-gh-darwin-<arch> anytype-gh
+xattr -d com.apple.quarantine ./anytype-gh
 ./anytype-gh
 ```
 
