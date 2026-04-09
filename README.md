@@ -1,5 +1,6 @@
 # anytype-gh
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/alesr/anytype-gh)](https://goreportcard.com/report/github.com/alesr/anytype-gh)
 [![Go Reference](https://pkg.go.dev/badge/github.com/alesr/anytype-gh.svg)](https://pkg.go.dev/github.com/alesr/anytype-gh)
 [![codecov](https://codecov.io/gh/alesr/anytype-gh/graph/badge.svg?token=mv0hyu13HW)](https://codecov.io/gh/alesr/anytype-gh)
 
