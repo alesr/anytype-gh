@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ func TestLoad(t *testing.T) {
 	tests := []struct {
 		name        string
 		envContent  string
+		yamlContent string
 		preEnv      map[string]string
 		wantToken   string
 		wantBaseURL string
@@ -26,24 +28,44 @@ func TestLoad(t *testing.T) {
 			wantBaseURL: "http://localhost:39999",
 		},
 		{
+			name:        "loads values from yaml config",
+			yamlContent: "github:\n  token: gh-yaml\nanytype:\n  base_url: http://localhost:31111\n",
+			wantToken:   "gh-yaml",
+			wantBaseURL: "http://localhost:31111",
+		},
+		{
+			name:        "yaml values override dotenv values",
+			envContent:  "GH_TOKEN=gh-dotenv\nANYTYPE_BASE_URL=http://localhost:39999",
+			yamlContent: "github:\n  token: gh-yaml\nanytype:\n  base_url: http://localhost:32222\n",
+			wantToken:   "gh-yaml",
+			wantBaseURL: "http://localhost:32222",
+		},
+		{
 			name:        "uses defaults when optional values missing",
 			envContent:  "GH_TOKEN=gh-token",
 			wantToken:   "gh-token",
 			wantBaseURL: defaultAnytypeBaseURL,
 		},
 		{
-			name:       "keeps existing env values over file",
-			envContent: "GH_TOKEN=file-token",
+			name:        "keeps existing env values over file",
+			envContent:  "GH_TOKEN=dotenv-token",
+			yamlContent: "github:\n  token: yaml-token\nanytype:\n  base_url: http://localhost:32222\n",
 			preEnv: map[string]string{
-				"GH_TOKEN": "existing-token",
+				"GH_TOKEN":         "existing-token",
+				"ANYTYPE_BASE_URL": "http://localhost:33333",
 			},
 			wantToken:   "existing-token",
-			wantBaseURL: defaultAnytypeBaseURL,
+			wantBaseURL: "http://localhost:33333",
 		},
 		{
 			name:       "returns error on invalid line",
 			envContent: "GH_TOKEN=\"unterminated",
 			wantErrIs:  errOpenEnvFile,
+		},
+		{
+			name:        "returns error on invalid yaml",
+			yamlContent: "github:\n  token: [unterminated\n",
+			wantErrIs:   errParseConfigFile,
 		},
 	}
 
@@ -59,12 +81,17 @@ func TestLoad(t *testing.T) {
 			tempDir := t.TempDir()
 
 			envPath := filepath.Join(tempDir, defaultEnvFileName)
+			configPath := filepath.Join(tempDir, defaultConfigFileName)
 			if tc.envContent != "" {
 				err := os.WriteFile(envPath, []byte(tc.envContent), 0o600)
 				require.NoError(t, err)
 			}
+			if tc.yamlContent != "" {
+				err := os.WriteFile(configPath, []byte(tc.yamlContent), 0o600)
+				require.NoError(t, err)
+			}
 
-			cfg, err := Load(envPath)
+			cfg, err := Load(envPath, configPath)
 			if tc.wantErrIs != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErrIs)
@@ -83,18 +110,45 @@ func TestLoad_DoesNotMutateProcessEnvFromFile(t *testing.T) {
 
 	tempDir := t.TempDir()
 	envPath := filepath.Join(tempDir, defaultEnvFileName)
+
 	err := os.WriteFile(envPath, []byte("GH_TOKEN=file-token\nANYTYPE_BASE_URL=http://localhost:39999"), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := Load(envPath)
+	configPath := filepath.Join(tempDir, defaultConfigFileName)
+
+	err = os.WriteFile(configPath, []byte("github:\n  token: yaml-token\n"), 0o600)
 	require.NoError(t, err)
-	assert.Equal(t, "file-token", cfg.GitHubToken)
+
+	cfg, err := Load(envPath, configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "yaml-token", cfg.GitHubToken)
 	assert.Equal(t, "http://localhost:39999", cfg.AnytypeBaseURL)
 
 	_, exists := os.LookupEnv("GH_TOKEN")
 	assert.False(t, exists)
+
 	_, exists = os.LookupEnv("ANYTYPE_BASE_URL")
 	assert.False(t, exists)
+}
+
+func TestSaveConfigFile(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, defaultConfigFileName)
+
+	err := SaveConfigFile(configPath, Config{
+		GitHubToken:    "gh-token",
+		AnytypeBaseURL: "http://localhost:31009",
+	})
+	require.NoError(t, err)
+
+	cfg, err := Load("", configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, "gh-token", cfg.GitHubToken)
+	assert.Equal(t, "http://localhost:31009", cfg.AnytypeBaseURL)
 }
 
 func TestConfigValidate(t *testing.T) {
@@ -253,6 +307,12 @@ func TestResolveEnvFilePathWith(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestResolveConfigFilePath(t *testing.T) {
+	got := ResolveConfigFilePath()
+	assert.NotEmpty(t, got)
+	assert.True(t, strings.HasSuffix(got, filepath.Join(defaultConfigDirName, defaultConfigFileName)) || got == defaultConfigFileName)
 }
 
 func cleanupRuntimeEnv(t *testing.T) {

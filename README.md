@@ -43,7 +43,21 @@ mv anytype-gh-darwin-<arch> anytype-gh
 
 ## Configuration
 
-Create `.env.local` in the project root:
+The CLI supports two configuration files:
+
+- `~/.config/anytype-gh/config.yaml` (created automatically on first run if `GH_TOKEN` is missing)
+- `.env.local` (optional fallback)
+
+`config.yaml` format:
+
+```yaml
+github:
+  token: github_pat_xxx
+anytype:
+  base_url: http://localhost:31009 # optional
+```
+
+`.env.local` format:
 
 ```dotenv
 GH_TOKEN=github_pat_xxx
@@ -53,6 +67,7 @@ ANYTYPE_BASE_URL=http://localhost:31009 # optional
 Configuration precedence:
 
 - process environment variables (highest priority)
+- `config.yaml` values
 - `.env.local` file values as fallback
 
 `.env.local` lookup order:
